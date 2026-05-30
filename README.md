@@ -17,11 +17,11 @@ Instead of keeping the web UI open in a dozen tabs or hand-rolling wrappers arou
 
 ```sh
 # from a release
-curl -L https://github.com/<user>/pvectl/releases/latest/download/pvectl_linux_amd64 -o /usr/local/bin/pvectl
+curl -L https://github.com/eltaline/pvectl/releases/latest/download/pvectl_linux_amd64 -o /usr/local/bin/pvectl
 chmod +x /usr/local/bin/pvectl
 
 # or from source
-go install github.com/<user>/pvectl@latest
+go install github.com/eltaline/pvectl@latest
 ```
 
 ## Quick start
