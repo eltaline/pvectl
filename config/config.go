@@ -22,9 +22,10 @@ const (
 
 // Cluster holds connection details for a Proxmox VE cluster/node.
 type Cluster struct {
-	Server     string `yaml:"server"`
-	Port       int    `yaml:"port,omitempty"`
-	Insecure   bool   `yaml:"insecure,omitempty"`
+	Server      string `yaml:"server"`
+	Port        int    `yaml:"port,omitempty"`
+	Insecure    bool   `yaml:"insecure,omitempty"`
+	CAFile      string `yaml:"certificate-authority,omitempty"`
 	Fingerprint string `yaml:"fingerprint,omitempty"`
 }
 
@@ -84,6 +85,9 @@ type Overrides struct {
 	Cluster    string
 	User       string
 	Context    string
+	Insecure   bool
+	CAFile     string
+	Verbosity  int
 }
 
 // DefaultConfigPath returns ~/.config/pvectl/config.yaml.

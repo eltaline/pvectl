@@ -21,6 +21,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&CfgOverrides.Cluster, "cluster", "", "override cluster name (env: PVECTL_CLUSTER)")
 	rootCmd.PersistentFlags().StringVar(&CfgOverrides.User, "user", "", "override user name (env: PVECTL_USER)")
 	rootCmd.PersistentFlags().StringVar(&CfgOverrides.Context, "context", "", "override context name (env: PVECTL_CONTEXT)")
+	rootCmd.PersistentFlags().BoolVar(&CfgOverrides.Insecure, "insecure-skip-tls-verify", false, "skip TLS certificate verification")
+	rootCmd.PersistentFlags().StringVar(&CfgOverrides.CAFile, "certificate-authority", "", "path to CA certificate file for TLS verification")
+	rootCmd.PersistentFlags().CountVarP(&CfgOverrides.Verbosity, "verbose", "v", "increase verbosity (-v for basic, -vv for detailed)")
 }
 
 func Execute() {
