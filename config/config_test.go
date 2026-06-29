@@ -217,6 +217,66 @@ func TestResolveEnvConfig(t *testing.T) {
 	}
 }
 
+func TestSaveAndReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "subdir", "config.yaml")
+	cfg := &Config{
+		Clusters: []NamedCluster{
+			{Name: "test", Cluster: Cluster{Server: "10.0.0.1", Port: 8006}},
+		},
+		Users: []NamedUser{
+			{Name: "admin", User: User{
+				Username:  "root@pam",
+				Ticket:    "PVE:ticket:123",
+				CSRFToken: "csrf-abc",
+			}},
+		},
+		CurrentContext: "test-ctx",
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(loaded.Users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(loaded.Users))
+	}
+	if loaded.Users[0].User.Ticket != "PVE:ticket:123" {
+		t.Errorf("ticket = %q", loaded.Users[0].User.Ticket)
+	}
+	if loaded.Users[0].User.CSRFToken != "csrf-abc" {
+		t.Errorf("csrf = %q", loaded.Users[0].User.CSRFToken)
+	}
+}
+
+func TestSetUser_update(t *testing.T) {
+	cfg := &Config{
+		Users: []NamedUser{
+			{Name: "admin", User: User{Username: "old@pam"}},
+		},
+	}
+	cfg.SetUser("admin", User{Username: "new@pam", Ticket: "t"})
+	if cfg.Users[0].User.Username != "new@pam" {
+		t.Errorf("expected updated username, got %s", cfg.Users[0].User.Username)
+	}
+	if len(cfg.Users) != 1 {
+		t.Errorf("expected 1 user, got %d", len(cfg.Users))
+	}
+}
+
+func TestSetUser_add(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetUser("new-user", User{Username: "test@pam"})
+	if len(cfg.Users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(cfg.Users))
+	}
+	if cfg.Users[0].Name != "new-user" {
+		t.Errorf("name = %q", cfg.Users[0].Name)
+	}
+}
+
 func TestResolveMissingConfig(t *testing.T) {
 	rc, err := Resolve(Overrides{ConfigPath: "/nonexistent/config.yaml"})
 	if err != nil {

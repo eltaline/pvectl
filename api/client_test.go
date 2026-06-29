@@ -258,6 +258,105 @@ func TestProxmoxError_messageFormat(t *testing.T) {
 	}
 }
 
+func TestTicketAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("PVEAuthCookie")
+		if err != nil || cookie.Value != "PVE:user@pam:12345678::sha256" {
+			t.Errorf("expected PVEAuthCookie, got err=%v cookie=%v", err, cookie)
+		}
+		// GET requests should not have CSRF token.
+		if r.Method == "GET" {
+			if r.Header.Get("CSRFPreventionToken") != "" {
+				t.Error("GET should not have CSRFPreventionToken")
+			}
+		}
+		json.NewEncoder(w).Encode(Response{Data: json.RawMessage(`null`)})
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(srv.URL, WithTicketAuth("PVE:user@pam:12345678::sha256", "csrf-token-value"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c.Get("/test")
+}
+
+func TestTicketAuth_CSRF(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		csrf := r.Header.Get("CSRFPreventionToken")
+		if csrf != "csrf-token-value" {
+			t.Errorf("CSRFPreventionToken = %q, want %q", csrf, "csrf-token-value")
+		}
+		json.NewEncoder(w).Encode(Response{Data: json.RawMessage(`null`)})
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(srv.URL, WithTicketAuth("PVE:ticket", "csrf-token-value"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c.Post("/test", strings.NewReader(`{}`))
+}
+
+func TestAuthenticate_success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api2/json/access/ticket" {
+			t.Errorf("path = %q, want /api2/json/access/ticket", r.URL.Path)
+		}
+		if r.Method != "POST" {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/x-www-form-urlencoded" {
+			t.Errorf("Content-Type = %q, want application/x-www-form-urlencoded", ct)
+		}
+		r.ParseForm()
+		if r.FormValue("username") != "root@pam" {
+			t.Errorf("username = %q, want root@pam", r.FormValue("username"))
+		}
+		json.NewEncoder(w).Encode(Response{
+			Data: json.RawMessage(`{"ticket":"PVE:root@pam:12345::sha","CSRFPreventionToken":"csrf123","username":"root@pam"}`),
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, err := c.Authenticate("root@pam", "secret")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Ticket != "PVE:root@pam:12345::sha" {
+		t.Errorf("ticket = %q", result.Ticket)
+	}
+	if result.CSRFToken != "csrf123" {
+		t.Errorf("csrf = %q", result.CSRFToken)
+	}
+	if result.Username != "root@pam" {
+		t.Errorf("username = %q", result.Username)
+	}
+}
+
+func TestAuthenticate_failure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(Response{
+			Errors: map[string]string{"username": "invalid credentials"},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_, err = c.Authenticate("root@pam", "wrong")
+	if err == nil {
+		t.Fatal("expected error for bad credentials")
+	}
+}
+
 func TestDecodeResponse_nonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

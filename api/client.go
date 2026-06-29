@@ -76,6 +76,14 @@ func WithTokenAuth(tokenID, tokenSecret string) ClientOption {
 	}
 }
 
+// WithTicketAuth sets cookie-based ticket authentication with CSRF token.
+func WithTicketAuth(ticket, csrfToken string) ClientOption {
+	return func(c *Client) {
+		c.ticket = ticket
+		c.csrfToken = csrfToken
+	}
+}
+
 // WithLogger sets the output writer for verbose logging. Defaults to os.Stderr.
 func WithLogger(w io.Writer) ClientOption {
 	return func(c *Client) { c.logWriter = w }
@@ -91,12 +99,21 @@ const (
 	basePath          = "/api2/json"
 )
 
+// TicketResult holds the response from POST /access/ticket.
+type TicketResult struct {
+	Ticket    string `json:"ticket"`
+	CSRFToken string `json:"CSRFPreventionToken"`
+	Username  string `json:"username"`
+}
+
 // Client is an HTTP client for the Proxmox VE API.
 type Client struct {
 	baseURL     string
 	httpClient  *http.Client
 	tokenID     string
 	tokenSecret string
+	ticket      string
+	csrfToken   string
 	insecure    bool
 	caFile      string
 	verbosity   Verbosity
@@ -181,6 +198,11 @@ func (c *Client) Do(method, path string, body io.Reader) (json.RawMessage, error
 		}
 		if c.tokenID != "" && c.tokenSecret != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", c.tokenID, c.tokenSecret))
+		} else if c.ticket != "" {
+			req.AddCookie(&http.Cookie{Name: "PVEAuthCookie", Value: c.ticket})
+			if c.csrfToken != "" && method != "GET" {
+				req.Header.Set("CSRFPreventionToken", c.csrfToken)
+			}
 		}
 
 		c.logf(VerbBasic, "> %s %s", method, url)
@@ -251,6 +273,46 @@ func (c *Client) Put(path string, body io.Reader) (json.RawMessage, error) {
 // Delete performs a DELETE request.
 func (c *Client) Delete(path string) (json.RawMessage, error) {
 	return c.Do("DELETE", path, nil)
+}
+
+// Authenticate performs a POST /access/ticket login and returns the ticket
+// and CSRF token. It does NOT modify the client's auth state; use
+// WithTicketAuth to create a client that uses the returned credentials.
+func (c *Client) Authenticate(username, password string) (*TicketResult, error) {
+	form := fmt.Sprintf("username=%s&password=%s", username, password)
+	url := c.baseURL + basePath + "/access/ticket"
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(form))
+	if err != nil {
+		return nil, fmt.Errorf("creating auth request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	c.logf(VerbBasic, "> POST %s", url)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing auth request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading auth response: %w", err)
+	}
+
+	c.logf(VerbBasic, "< %s", resp.Status)
+
+	data, err := c.decodeResponse(resp.StatusCode, resp.Status, respBody)
+	if err != nil {
+		return nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	var result TicketResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("decoding ticket response: %w", err)
+	}
+	return &result, nil
 }
 
 // decodeResponse parses the Proxmox JSON envelope and returns

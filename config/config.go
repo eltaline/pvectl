@@ -41,6 +41,8 @@ type User struct {
 	TokenSecret string `yaml:"token-secret,omitempty"`
 	Username    string `yaml:"username,omitempty"`
 	Password    string `yaml:"password,omitempty"`
+	Ticket      string `yaml:"ticket,omitempty"`
+	CSRFToken   string `yaml:"csrf-token,omitempty"`
 }
 
 // NamedUser binds a name to user credentials.
@@ -114,6 +116,38 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config %s: %w", path, err)
 	}
 	return &cfg, nil
+}
+
+// Save writes the config to the given file path atomically.
+// It creates parent directories if they do not exist.
+func Save(path string, cfg *Config) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating config directory %s: %w", dir, err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("writing config %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("renaming config %s: %w", path, err)
+	}
+	return nil
+}
+
+// SetUser adds or updates a named user in the config.
+func (cfg *Config) SetUser(name string, user User) {
+	for i := range cfg.Users {
+		if cfg.Users[i].Name == name {
+			cfg.Users[i].User = user
+			return
+		}
+	}
+	cfg.Users = append(cfg.Users, NamedUser{Name: name, User: user})
 }
 
 // ConfigPath returns the effective config file path considering
