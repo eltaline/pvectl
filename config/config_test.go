@@ -277,6 +277,127 @@ func TestSetUser_add(t *testing.T) {
 	}
 }
 
+func TestSetCluster_add(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetCluster("mycluster", Cluster{Server: "10.0.0.1", Port: 8006})
+	if len(cfg.Clusters) != 1 {
+		t.Fatalf("expected 1 cluster, got %d", len(cfg.Clusters))
+	}
+	if cfg.Clusters[0].Cluster.Server != "10.0.0.1" {
+		t.Errorf("server = %q", cfg.Clusters[0].Cluster.Server)
+	}
+}
+
+func TestSetCluster_update(t *testing.T) {
+	cfg := &Config{
+		Clusters: []NamedCluster{
+			{Name: "c1", Cluster: Cluster{Server: "old"}},
+		},
+	}
+	cfg.SetCluster("c1", Cluster{Server: "new", Port: 9999})
+	if len(cfg.Clusters) != 1 {
+		t.Fatalf("expected 1 cluster, got %d", len(cfg.Clusters))
+	}
+	if cfg.Clusters[0].Cluster.Server != "new" {
+		t.Errorf("expected server new, got %s", cfg.Clusters[0].Cluster.Server)
+	}
+}
+
+func TestSetContext_add(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetContext("ctx1", Context{Cluster: "c1", User: "u1"})
+	if len(cfg.Contexts) != 1 {
+		t.Fatalf("expected 1 context, got %d", len(cfg.Contexts))
+	}
+	if cfg.Contexts[0].Context.Cluster != "c1" {
+		t.Errorf("cluster = %q", cfg.Contexts[0].Context.Cluster)
+	}
+}
+
+func TestSetContext_update(t *testing.T) {
+	cfg := &Config{
+		Contexts: []NamedContext{
+			{Name: "ctx1", Context: Context{Cluster: "old", User: "old"}},
+		},
+	}
+	cfg.SetContext("ctx1", Context{Cluster: "new", User: "new"})
+	if len(cfg.Contexts) != 1 {
+		t.Fatalf("expected 1 context, got %d", len(cfg.Contexts))
+	}
+	if cfg.Contexts[0].Context.Cluster != "new" {
+		t.Errorf("expected cluster new, got %s", cfg.Contexts[0].Context.Cluster)
+	}
+}
+
+func TestDeleteContext_existing(t *testing.T) {
+	cfg := &Config{
+		Contexts: []NamedContext{
+			{Name: "ctx1", Context: Context{Cluster: "c1", User: "u1"}},
+			{Name: "ctx2", Context: Context{Cluster: "c2", User: "u2"}},
+		},
+		CurrentContext: "ctx1",
+	}
+	ok := cfg.DeleteContext("ctx1")
+	if !ok {
+		t.Error("expected DeleteContext to return true")
+	}
+	if len(cfg.Contexts) != 1 {
+		t.Fatalf("expected 1 context, got %d", len(cfg.Contexts))
+	}
+	if cfg.CurrentContext != "" {
+		t.Errorf("expected empty current-context, got %s", cfg.CurrentContext)
+	}
+}
+
+func TestDeleteContext_nonexistent(t *testing.T) {
+	cfg := &Config{}
+	ok := cfg.DeleteContext("nope")
+	if ok {
+		t.Error("expected DeleteContext to return false for nonexistent")
+	}
+}
+
+func TestMaskSecrets(t *testing.T) {
+	cfg := &Config{
+		Users: []NamedUser{
+			{Name: "admin", User: User{
+				TokenID:     "root@pam!mytoken",
+				TokenSecret: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+				Password:    "secretpass",
+				Ticket:      "PVE:ticket:longvalue",
+				CSRFToken:   "csrf-token-value",
+			}},
+		},
+		Clusters: []NamedCluster{
+			{Name: "prod", Cluster: Cluster{Server: "10.0.0.1"}},
+		},
+	}
+	masked := cfg.MaskSecrets()
+	u := masked.Users[0].User
+
+	// TokenID should not be masked.
+	if u.TokenID != "root@pam!mytoken" {
+		t.Errorf("TokenID was modified: %s", u.TokenID)
+	}
+	// Secrets should be masked.
+	if u.TokenSecret == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" {
+		t.Error("TokenSecret was not masked")
+	}
+	if u.Password == "secretpass" {
+		t.Error("Password was not masked")
+	}
+	if u.Ticket == "PVE:ticket:longvalue" {
+		t.Error("Ticket was not masked")
+	}
+	if u.CSRFToken == "csrf-token-value" {
+		t.Error("CSRFToken was not masked")
+	}
+	// Original should be unchanged.
+	if cfg.Users[0].User.TokenSecret != "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" {
+		t.Error("original config was modified")
+	}
+}
+
 func TestResolveMissingConfig(t *testing.T) {
 	rc, err := Resolve(Overrides{ConfigPath: "/nonexistent/config.yaml"})
 	if err != nil {

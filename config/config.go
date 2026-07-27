@@ -150,6 +150,80 @@ func (cfg *Config) SetUser(name string, user User) {
 	cfg.Users = append(cfg.Users, NamedUser{Name: name, User: user})
 }
 
+// SetCluster adds or updates a named cluster in the config.
+func (cfg *Config) SetCluster(name string, cluster Cluster) {
+	for i := range cfg.Clusters {
+		if cfg.Clusters[i].Name == name {
+			cfg.Clusters[i].Cluster = cluster
+			return
+		}
+	}
+	cfg.Clusters = append(cfg.Clusters, NamedCluster{Name: name, Cluster: cluster})
+}
+
+// SetContext adds or updates a named context in the config.
+func (cfg *Config) SetContext(name string, ctx Context) {
+	for i := range cfg.Contexts {
+		if cfg.Contexts[i].Name == name {
+			cfg.Contexts[i].Context = ctx
+			return
+		}
+	}
+	cfg.Contexts = append(cfg.Contexts, NamedContext{Name: name, Context: ctx})
+}
+
+// DeleteContext removes a named context from the config.
+// It returns true if a context was removed.
+func (cfg *Config) DeleteContext(name string) bool {
+	for i := range cfg.Contexts {
+		if cfg.Contexts[i].Name == name {
+			cfg.Contexts = append(cfg.Contexts[:i], cfg.Contexts[i+1:]...)
+			if cfg.CurrentContext == name {
+				cfg.CurrentContext = ""
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// MaskSecrets returns a copy of the config with sensitive fields masked.
+func (cfg *Config) MaskSecrets() *Config {
+	masked := *cfg
+
+	masked.Users = make([]NamedUser, len(cfg.Users))
+	for i, nu := range cfg.Users {
+		u := nu.User
+		if u.TokenSecret != "" {
+			u.TokenSecret = maskString(u.TokenSecret)
+		}
+		if u.Password != "" {
+			u.Password = maskString(u.Password)
+		}
+		if u.Ticket != "" {
+			u.Ticket = maskString(u.Ticket)
+		}
+		if u.CSRFToken != "" {
+			u.CSRFToken = maskString(u.CSRFToken)
+		}
+		masked.Users[i] = NamedUser{Name: nu.Name, User: u}
+	}
+
+	masked.Clusters = make([]NamedCluster, len(cfg.Clusters))
+	copy(masked.Clusters, cfg.Clusters)
+	masked.Contexts = make([]NamedContext, len(cfg.Contexts))
+	copy(masked.Contexts, cfg.Contexts)
+
+	return &masked
+}
+
+func maskString(s string) string {
+	if len(s) <= 6 {
+		return "******"
+	}
+	return s[:3] + "***" + s[len(s)-3:]
+}
+
 // ConfigPath returns the effective config file path considering
 // flag override, env override, and default (in that priority order).
 func ConfigPath(overrides Overrides) string {
